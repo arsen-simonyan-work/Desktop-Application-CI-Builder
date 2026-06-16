@@ -6,9 +6,10 @@ What it does:
 - choose a target project folder
 - choose a master app icon
 - set app name, package name, bundle id, executable name, version, entry script
+- choose target platforms: Linux (`deb`), Windows (`msi`), macOS (`dmg`)
 - generate `png`, `ico`, `icns`, and Linux icon assets
-- generate PyInstaller spec and packaging scripts for Linux, Windows, and macOS
-- generate GitHub Actions release workflow that builds `deb`, `msi`, and `dmg`
+- generate PyInstaller spec and packaging scripts only for the selected platforms
+- generate GitHub Actions release workflow only for the selected platforms
 
 Local run:
 
@@ -22,10 +23,13 @@ python3 main.py
 Generated scaffold:
 - `version.py`, `app_paths.py`, `VERSION`
 - `.github/workflows/release-packages.yml`
-- `build_linux.sh`, `build_macos.sh`, `build_windows.bat`
-- `scripts/build_deb.py`, `scripts/build_msi.py`, `scripts/build_dmg.sh`
+- platform-specific build scripts for the selected targets
+- platform-specific packaging scripts for the selected targets
 - `scripts/generate_icons.py`, `scripts/validate_version.py`
 - `assets/icons/*`
+
+Example:
+- if you select only `Linux`, the generated scaffold contains only the `deb` flow: `build_linux.sh`, `scripts/build_deb.py`, Linux icon set, and a GitHub Actions matrix with `ubuntu-latest` only
 
 Release flow for a generated project:
 

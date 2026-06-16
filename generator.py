@@ -8,6 +8,35 @@ from typing import Iterable
 
 from PIL import Image
 
+PLATFORM_LINUX = "linux"
+PLATFORM_WINDOWS = "windows"
+PLATFORM_MACOS = "macos"
+PLATFORM_ORDER = (
+    PLATFORM_LINUX,
+    PLATFORM_WINDOWS,
+    PLATFORM_MACOS,
+)
+PLATFORM_RUNNERS = {
+    PLATFORM_LINUX: "ubuntu-latest",
+    PLATFORM_WINDOWS: "windows-latest",
+    PLATFORM_MACOS: "macos-latest",
+}
+PLATFORM_ARTIFACTS = {
+    PLATFORM_LINUX: "linux-deb",
+    PLATFORM_WINDOWS: "windows-msi",
+    PLATFORM_MACOS: "macos-dmg",
+}
+PLATFORM_PACKAGE_LABELS = {
+    PLATFORM_LINUX: "deb",
+    PLATFORM_WINDOWS: "msi",
+    PLATFORM_MACOS: "dmg",
+}
+PLATFORM_DISPLAY_NAMES = {
+    PLATFORM_LINUX: "Linux",
+    PLATFORM_WINDOWS: "Windows",
+    PLATFORM_MACOS: "macOS",
+}
+
 LINUX_ICON_SIZES = [16, 24, 32, 48, 64, 128, 256, 512]
 ICO_ICON_SIZES = [16, 24, 32, 48, 64, 128, 256]
 ICNS_ICON_SIZES = [
@@ -29,6 +58,15 @@ class ScaffoldError(ValueError):
     pass
 
 
+def normalize_platforms(platforms: Iterable[str]) -> tuple[str, ...]:
+    requested = {platform.strip().lower() for platform in platforms if platform.strip()}
+    invalid = requested.difference(PLATFORM_ORDER)
+    if invalid:
+        invalid_list = ", ".join(sorted(invalid))
+        raise ScaffoldError(f"Unsupported platforms: {invalid_list}")
+    return tuple(platform for platform in PLATFORM_ORDER if platform in requested)
+
+
 @dataclass(slots=True)
 class ScaffoldConfig:
     target_dir: Path
@@ -42,6 +80,7 @@ class ScaffoldConfig:
     manufacturer: str
     app_data_dir_name: str
     linux_data_dir_name: str
+    platforms: tuple[str, ...]
 
     def validate(self) -> None:
         errors: list[str] = []
@@ -68,6 +107,12 @@ class ScaffoldConfig:
             errors.append("App data directory name is required.")
         if not self.linux_data_dir_name.strip():
             errors.append("Linux data directory name is required.")
+        try:
+            self.platforms = normalize_platforms(self.platforms)
+        except ScaffoldError as exc:
+            errors.append(str(exc))
+        if not self.platforms:
+            errors.append("Choose at least one target platform.")
 
         if self.icon_path and not self.icon_path.exists():
             errors.append(f"Icon file not found: {self.icon_path}")
@@ -113,6 +158,18 @@ class ScaffoldConfig:
     @property
     def upgrade_code(self) -> str:
         return str(uuid.uuid5(uuid.NAMESPACE_DNS, self.bundle_id)).upper()
+
+    @property
+    def supports_linux(self) -> bool:
+        return PLATFORM_LINUX in self.platforms
+
+    @property
+    def supports_windows(self) -> bool:
+        return PLATFORM_WINDOWS in self.platforms
+
+    @property
+    def supports_macos(self) -> bool:
+        return PLATFORM_MACOS in self.platforms
 
 
 def slugify_package_name(value: str) -> str:
@@ -170,7 +227,12 @@ def _make_square_image(source_path: Path, size: int) -> Image.Image:
         return canvas
 
 
-def generate_icon_assets(icon_path: Path, icon_root: Path, package_name: str) -> list[Path]:
+def generate_icon_assets(
+    icon_path: Path,
+    icon_root: Path,
+    package_name: str,
+    platforms: tuple[str, ...],
+) -> list[Path]:
     created: list[Path] = []
     source_target = icon_root / "app-icon-source.png"
     _write_bytes(source_target, icon_path.read_bytes())
@@ -181,22 +243,25 @@ def generate_icon_assets(icon_path: Path, icon_root: Path, package_name: str) ->
     runtime_image.save(runtime_icon)
     created.append(runtime_icon)
 
-    windows_icon = icon_root / "app-icon.ico"
-    windows_sizes = [(size, size) for size in ICO_ICON_SIZES]
-    runtime_image.save(windows_icon, sizes=windows_sizes)
-    created.append(windows_icon)
+    if PLATFORM_WINDOWS in platforms:
+        windows_icon = icon_root / "app-icon.ico"
+        windows_sizes = [(size, size) for size in ICO_ICON_SIZES]
+        runtime_image.save(windows_icon, sizes=windows_sizes)
+        created.append(windows_icon)
 
-    macos_icon = icon_root / "app-icon.icns"
-    icns_image = _make_square_image(icon_path, ICNS_CANVAS_SIZE)
-    icns_image.save(macos_icon, sizes=ICNS_ICON_SIZES)
-    created.append(macos_icon)
+    if PLATFORM_MACOS in platforms:
+        macos_icon = icon_root / "app-icon.icns"
+        icns_image = _make_square_image(icon_path, ICNS_CANVAS_SIZE)
+        icns_image.save(macos_icon, sizes=ICNS_ICON_SIZES)
+        created.append(macos_icon)
 
-    for size in LINUX_ICON_SIZES:
-        icon_path_out = icon_root / "hicolor" / f"{size}x{size}" / "apps" / f"{package_name}.png"
-        linux_image = _make_square_image(icon_path, size)
-        icon_path_out.parent.mkdir(parents=True, exist_ok=True)
-        linux_image.save(icon_path_out)
-        created.append(icon_path_out)
+    if PLATFORM_LINUX in platforms:
+        for size in LINUX_ICON_SIZES:
+            icon_path_out = icon_root / "hicolor" / f"{size}x{size}" / "apps" / f"{package_name}.png"
+            linux_image = _make_square_image(icon_path, size)
+            icon_path_out.parent.mkdir(parents=True, exist_ok=True)
+            linux_image.save(icon_path_out)
+            created.append(icon_path_out)
 
     return created
 
@@ -394,6 +459,57 @@ if sys.platform == "darwin":
 
 
 def render_workflow(config: ScaffoldConfig) -> str:
+    matrix_targets = "\n".join(
+        [
+            "          - label: {label}\n"
+            "            runner: {runner}\n"
+            "            artifact_name: {artifact}".format(
+                label=PLATFORM_PACKAGE_LABELS[platform],
+                runner=PLATFORM_RUNNERS[platform],
+                artifact=PLATFORM_ARTIFACTS[platform],
+            )
+            for platform in config.platforms
+        ]
+    )
+    pre_dependency_steps: list[str] = []
+    post_build_steps: list[str] = []
+
+    if config.supports_linux:
+        pre_dependency_steps.append(
+            """      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev"""
+        )
+        post_build_steps.append(
+            """      - name: Package deb
+        if: runner.os == 'Linux'
+        run: python scripts/build_deb.py"""
+        )
+
+    if config.supports_windows:
+        post_build_steps.append(
+            """      - name: Install WiX
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix
+          "$env:USERPROFILE\\.dotnet\\tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append"""
+        )
+        post_build_steps.append(
+            """      - name: Package msi
+        if: runner.os == 'Windows'
+        run: python scripts/build_msi.py"""
+        )
+
+    if config.supports_macos:
+        post_build_steps.append(
+            """      - name: Package dmg
+        if: runner.os == 'macOS'
+        run: bash scripts/build_dmg.sh"""
+        )
+
     template = '''name: Release Packages
 
 on:
@@ -412,15 +528,7 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - label: deb
-            runner: ubuntu-latest
-            artifact_name: linux-deb
-          - label: msi
-            runner: windows-latest
-            artifact_name: windows-msi
-          - label: dmg
-            runner: macos-latest
-            artifact_name: macos-dmg
+__MATRIX_TARGETS__
 
     steps:
       - name: Checkout
@@ -431,11 +539,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install Linux packaging tools
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y dpkg-dev
+__PRE_DEPENDENCY_STEPS__
 
       - name: Install Python dependencies
         shell: bash
@@ -450,29 +554,12 @@ jobs:
         run: python scripts/validate_version.py
 
       - name: Generate icons
-        run: python scripts/generate_icons.py --require-icns
+        run: python scripts/generate_icons.py
 
       - name: Build application bundle
         run: python -m PyInstaller __SPEC_FILENAME__ --noconfirm --clean
 
-      - name: Install WiX
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          dotnet tool install --global wix
-          "$env:USERPROFILE\\.dotnet\\tools" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Package deb
-        if: runner.os == 'Linux'
-        run: python scripts/build_deb.py
-
-      - name: Package msi
-        if: runner.os == 'Windows'
-        run: python scripts/build_msi.py
-
-      - name: Package dmg
-        if: runner.os == 'macOS'
-        run: bash scripts/build_dmg.sh
+__POST_BUILD_STEPS__
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
@@ -499,7 +586,15 @@ jobs:
           files: release-artifacts/*
           generate_release_notes: true
 '''
-    return _fill_template(template, {"__SPEC_FILENAME__": config.spec_filename})
+    return _fill_template(
+        template,
+        {
+            "__SPEC_FILENAME__": config.spec_filename,
+            "__MATRIX_TARGETS__": matrix_targets,
+            "__PRE_DEPENDENCY_STEPS__": "\n\n".join(pre_dependency_steps),
+            "__POST_BUILD_STEPS__": "\n\n".join(post_build_steps),
+        },
+    )
 
 
 def render_main_py(config: ScaffoldConfig) -> str:
@@ -573,7 +668,7 @@ if [[ -f requirements.txt ]]; then
     python -m pip install -r requirements.txt
 fi
 python -m pip install pyinstaller pillow
-python scripts/generate_icons.py --require-icns
+python scripts/generate_icons.py
 
 python -m PyInstaller __SPEC_FILENAME__ \
     --noconfirm \
@@ -603,7 +698,7 @@ if [[ -f requirements.txt ]]; then
     python -m pip install -r requirements.txt
 fi
 python -m pip install pyinstaller pillow
-python scripts/generate_icons.py --require-icns
+python scripts/generate_icons.py
 
 python -m PyInstaller __SPEC_FILENAME__ \
     --noconfirm \
@@ -626,7 +721,7 @@ call venv\\Scripts\\activate.bat
 python -m pip install --upgrade pip
 if exist requirements.txt python -m pip install -r requirements.txt
 python -m pip install pyinstaller pillow
-python scripts\\generate_icons.py --require-icns
+python scripts\\generate_icons.py
 
 python -m PyInstaller __SPEC_FILENAME__ --noconfirm --clean
 if errorlevel 1 exit /b 1
@@ -714,6 +809,9 @@ ICNS_SIZES = [
     (512, 512, 2),
 ]
 PACKAGE_NAME = "__PACKAGE_NAME__"
+GENERATE_WINDOWS_ICON = __GENERATE_WINDOWS_ICON__
+GENERATE_MACOS_ICON = __GENERATE_MACOS_ICON__
+GENERATE_LINUX_ICONS = __GENERATE_LINUX_ICONS__
 
 
 def make_square_image(size: int) -> Image.Image:
@@ -739,7 +837,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
-    parse_args()
+    args = parse_args()
 
     if not SOURCE_ICON.exists():
         raise FileNotFoundError(f"Missing source icon: {SOURCE_ICON}")
@@ -748,15 +846,20 @@ def main() -> int:
 
     runtime = make_square_image(512)
     runtime.save(RUNTIME_ICON)
-    runtime.save(WINDOWS_ICON, sizes=[(size, size) for size in ICO_SIZES])
+    if GENERATE_WINDOWS_ICON:
+        runtime.save(WINDOWS_ICON, sizes=[(size, size) for size in ICO_SIZES])
 
-    icns_image = make_square_image(1024)
-    icns_image.save(MACOS_ICON, sizes=ICNS_SIZES)
+    if GENERATE_MACOS_ICON:
+        icns_image = make_square_image(1024)
+        icns_image.save(MACOS_ICON, sizes=ICNS_SIZES)
+    elif args.require_icns:
+        raise RuntimeError("app-icon.icns generation is disabled for this scaffold.")
 
-    for size in LINUX_SIZES:
-        output_path = LINUX_ICON_ROOT / f"{size}x{size}" / "apps" / f"{PACKAGE_NAME}.png"
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        make_square_image(size).save(output_path)
+    if GENERATE_LINUX_ICONS:
+        for size in LINUX_SIZES:
+            output_path = LINUX_ICON_ROOT / f"{size}x{size}" / "apps" / f"{PACKAGE_NAME}.png"
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            make_square_image(size).save(output_path)
 
     return 0
 
@@ -764,7 +867,15 @@ def main() -> int:
 if __name__ == "__main__":
     raise SystemExit(main())
 '''
-    return _fill_template(template, {"__PACKAGE_NAME__": config.package_name})
+    return _fill_template(
+        template,
+        {
+            "__PACKAGE_NAME__": config.package_name,
+            "__GENERATE_WINDOWS_ICON__": "True" if config.supports_windows else "False",
+            "__GENERATE_MACOS_ICON__": "True" if config.supports_macos else "False",
+            "__GENERATE_LINUX_ICONS__": "True" if config.supports_linux else "False",
+        },
+    )
 
 
 def render_build_deb_py(config: ScaffoldConfig) -> str:
@@ -1088,29 +1199,51 @@ echo "$OUTPUT_FILE"
 
 
 def render_packaging_readme(config: ScaffoldConfig) -> str:
+    generated_files = [
+        f"- `{config.spec_filename}`",
+        "- `.github/workflows/release-packages.yml`",
+        "- `scripts/generate_icons.py`",
+        "- `scripts/validate_version.py`",
+        "- `version.py`",
+        "- `app_paths.py`",
+        "- `assets/icons/*`",
+    ]
+    if config.supports_linux:
+        generated_files.extend(
+            [
+                "- `build_linux.sh`",
+                "- `scripts/build_deb.py`",
+            ]
+        )
+    if config.supports_windows:
+        generated_files.extend(
+            [
+                "- `build_windows.bat`",
+                "- `scripts/build_msi.py`",
+            ]
+        )
+    if config.supports_macos:
+        generated_files.extend(
+            [
+                "- `build_macos.sh`",
+                "- `scripts/build_dmg.sh`",
+            ]
+        )
+
+    selected_platforms = ", ".join(PLATFORM_DISPLAY_NAMES[platform] for platform in config.platforms)
+    release_targets = ", ".join(PLATFORM_PACKAGE_LABELS[platform] for platform in config.platforms)
     template = '''# Packaging and Release
 
 This scaffold was generated for `__APP_NAME__`.
 
 Generated files:
-- `__SPEC_FILENAME__`
-- `.github/workflows/release-packages.yml`
-- `scripts/generate_icons.py`
-- `scripts/build_deb.py`
-- `scripts/build_msi.py`
-- `scripts/build_dmg.sh`
-- `build_linux.sh`
-- `build_macos.sh`
-- `build_windows.bat`
-- `version.py`
-- `app_paths.py`
-- `assets/icons/*`
+__GENERATED_FILES__
 
 Release flow:
 1. Update `VERSION`
 2. Commit changes
 3. Push a git tag matching `VERSION`
-4. GitHub Actions will build release packages for Linux, Windows, and macOS
+4. GitHub Actions will build release packages for the selected platforms
 
 Example:
 ```bash
@@ -1119,6 +1252,8 @@ git push origin __VERSION__
 ```
 
 Notes:
+- Selected platforms: __SELECTED_PLATFORMS__
+- Release artifacts: __RELEASE_TARGETS__
 - Your application entry script is set to `__ENTRY_SCRIPT__`
 - Your package name is `__PACKAGE_NAME__`
 - Your bundle id is `__BUNDLE_ID__`
@@ -1128,8 +1263,10 @@ Notes:
         template,
         {
             "__APP_NAME__": config.app_name,
-            "__SPEC_FILENAME__": config.spec_filename,
+            "__GENERATED_FILES__": "\n".join(generated_files),
             "__VERSION__": config.version,
+            "__SELECTED_PLATFORMS__": selected_platforms,
+            "__RELEASE_TARGETS__": release_targets,
             "__ENTRY_SCRIPT__": config.entry_script,
             "__PACKAGE_NAME__": config.package_name,
             "__BUNDLE_ID__": config.bundle_id,
@@ -1149,6 +1286,7 @@ def generate_scaffold(config: ScaffoldConfig) -> list[Path]:
             icon_path=config.icon_path.resolve(),
             icon_root=target_dir / "assets" / "icons",
             package_name=config.package_name,
+            platforms=config.platforms,
         )
     )
 
@@ -1158,16 +1296,22 @@ def generate_scaffold(config: ScaffoldConfig) -> list[Path]:
         target_dir / "app_paths.py": (render_app_paths_py(config), False),
         target_dir / config.spec_filename: (render_spec(config), False),
         target_dir / ".github" / "workflows" / "release-packages.yml": (render_workflow(config), False),
-        target_dir / "build_linux.sh": (render_build_linux_sh(config), True),
-        target_dir / "build_macos.sh": (render_build_macos_sh(config), True),
-        target_dir / "build_windows.bat": (render_build_windows_bat(config), False),
         target_dir / "scripts" / "validate_version.py": (render_validate_version_py(), False),
         target_dir / "scripts" / "generate_icons.py": (render_target_generate_icons_py(config), False),
-        target_dir / "scripts" / "build_deb.py": (render_build_deb_py(config), False),
-        target_dir / "scripts" / "build_msi.py": (render_build_msi_py(config), False),
-        target_dir / "scripts" / "build_dmg.sh": (render_build_dmg_sh(config), True),
         target_dir / "PACKAGING.md": (render_packaging_readme(config), False),
     }
+
+    if config.supports_linux:
+        file_map[target_dir / "build_linux.sh"] = (render_build_linux_sh(config), True)
+        file_map[target_dir / "scripts" / "build_deb.py"] = (render_build_deb_py(config), False)
+
+    if config.supports_windows:
+        file_map[target_dir / "build_windows.bat"] = (render_build_windows_bat(config), False)
+        file_map[target_dir / "scripts" / "build_msi.py"] = (render_build_msi_py(config), False)
+
+    if config.supports_macos:
+        file_map[target_dir / "build_macos.sh"] = (render_build_macos_sh(config), True)
+        file_map[target_dir / "scripts" / "build_dmg.sh"] = (render_build_dmg_sh(config), True)
 
     entry_script_path = target_dir / config.entry_script
     if not entry_script_path.exists():

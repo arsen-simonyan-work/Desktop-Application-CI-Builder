@@ -7,6 +7,9 @@ import customtkinter as ctk
 
 from app_paths import get_resource_path
 from generator import (
+    PLATFORM_LINUX,
+    PLATFORM_MACOS,
+    PLATFORM_WINDOWS,
     ScaffoldConfig,
     generate_scaffold,
     make_bundle_id,
@@ -55,6 +58,9 @@ class App(ctk.CTk):
         self.bundle_id_var = ctk.StringVar(value="com.example.mydesktopapp")
         self.entry_script_var = ctk.StringVar(value="main.py")
         self.manufacturer_var = ctk.StringVar(value="Example Studio")
+        self.linux_platform_var = ctk.BooleanVar(value=True)
+        self.windows_platform_var = ctk.BooleanVar(value=True)
+        self.macos_platform_var = ctk.BooleanVar(value=True)
 
         self._build_ui()
         self._sync_derived_fields()
@@ -107,12 +113,13 @@ class App(ctk.CTk):
             fg_color=self.PALETTE["panel"],
             corner_radius=0,
         )
-        form.grid(row=0, column=0, sticky="nsew", padx=18, pady=18)
+        form.grid(row=0, column=0, sticky="nsew", padx=9, pady=9)
         form.grid_columnconfigure(0, weight=1)
 
         self._build_path_section(form)
         self._build_metadata_section(form)
         self._build_identity_section(form)
+        self._build_platform_section(form)
         self._build_actions_section(form)
 
         guide = ctk.CTkFrame(
@@ -122,7 +129,7 @@ class App(ctk.CTk):
             border_width=1,
             border_color=self.PALETTE["border"],
         )
-        guide.grid(row=0, column=0, sticky="ew", padx=22, pady=(22, 12))
+        guide.grid(row=0, column=0, sticky="ew", padx=11, pady=(11, 6))
         guide.grid_columnconfigure(0, weight=1)
 
         guide_title = ctk.CTkLabel(
@@ -139,8 +146,8 @@ class App(ctk.CTk):
             text=(
                 "- GitHub Actions release workflow\n"
                 "- PyInstaller spec\n"
-                "- PNG / ICO / ICNS / Linux icon set\n"
-                "- deb / msi / dmg packaging scripts\n"
+                "- Runtime and platform-specific icon assets\n"
+                "- deb / msi / dmg packaging scripts by selection\n"
                 "- version.py, app_paths.py, VERSION\n\n"
                 "Use this for a new desktop project or apply it onto an existing Python app root."
             ),
@@ -157,7 +164,7 @@ class App(ctk.CTk):
             text_color=self.PALETTE["text"],
             font=ctk.CTkFont(size=20, weight="bold"),
         )
-        log_label.grid(row=1, column=0, sticky="nw", padx=22, pady=(6, 8))
+        log_label.grid(row=1, column=0, sticky="nw", padx=11, pady=(3, 4))
 
         self.log = ctk.CTkTextbox(
             right,
@@ -168,12 +175,12 @@ class App(ctk.CTk):
             border_color=self.PALETTE["border"],
             font=ctk.CTkFont(family="Courier", size=13),
         )
-        self.log.grid(row=2, column=0, sticky="nsew", padx=22, pady=(0, 22))
+        self.log.grid(row=2, column=0, sticky="nsew", padx=11, pady=(0, 11))
         self._set_log(
             "Ready.\n\n"
             "1. Choose the target project folder.\n"
             "2. Choose the master icon PNG.\n"
-            "3. Review names and IDs.\n"
+            "3. Review names, IDs, and platforms.\n"
             "4. Click Generate Scaffold."
         )
 
@@ -218,7 +225,7 @@ class App(ctk.CTk):
         self._labeled_entry(card, 0, 0, "Package Name", self.package_name_var)
         self._labeled_entry(card, 0, 1, "Bundle ID", self.bundle_id_var)
 
-    def _build_actions_section(self, parent: ctk.CTkScrollableFrame) -> None:
+    def _build_platform_section(self, parent: ctk.CTkScrollableFrame) -> None:
         card = ctk.CTkFrame(
             parent,
             fg_color=self.PALETTE["card"],
@@ -227,6 +234,65 @@ class App(ctk.CTk):
             border_color=self.PALETTE["border"],
         )
         card.grid(row=3, column=0, sticky="ew", padx=6, pady=(0, 16))
+        card.grid_columnconfigure(0, weight=1)
+
+        header = ctk.CTkFrame(card, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", padx=14, pady=14)
+        header.grid_columnconfigure(0, weight=1)
+
+        title_label = ctk.CTkLabel(
+            header,
+            text="Target Platform",
+            text_color=self.PALETTE["text"],
+            font=ctk.CTkFont(size=18, weight="bold"),
+        )
+        title_label.grid(row=0, column=0, sticky="w")
+
+        checkbox_row = ctk.CTkFrame(header, fg_color="transparent")
+        checkbox_row.grid(row=0, column=1, sticky="e")
+
+        linux_checkbox = ctk.CTkCheckBox(
+            checkbox_row,
+            text="Linux (deb)",
+            variable=self.linux_platform_var,
+            text_color=self.PALETTE["text"],
+            fg_color=self.PALETTE["accent"],
+            hover_color=self.PALETTE["accent_hover"],
+            border_color=self.PALETTE["border"],
+        )
+        linux_checkbox.grid(row=0, column=0, sticky="w")
+
+        windows_checkbox = ctk.CTkCheckBox(
+            checkbox_row,
+            text="Windows (msi)",
+            variable=self.windows_platform_var,
+            text_color=self.PALETTE["text"],
+            fg_color=self.PALETTE["accent"],
+            hover_color=self.PALETTE["accent_hover"],
+            border_color=self.PALETTE["border"],
+        )
+        windows_checkbox.grid(row=0, column=1, sticky="w", padx=(18, 0))
+
+        macos_checkbox = ctk.CTkCheckBox(
+            checkbox_row,
+            text="macOS (dmg)",
+            variable=self.macos_platform_var,
+            text_color=self.PALETTE["text"],
+            fg_color=self.PALETTE["accent"],
+            hover_color=self.PALETTE["accent_hover"],
+            border_color=self.PALETTE["border"],
+        )
+        macos_checkbox.grid(row=0, column=2, sticky="w", padx=(18, 0))
+
+    def _build_actions_section(self, parent: ctk.CTkScrollableFrame) -> None:
+        card = ctk.CTkFrame(
+            parent,
+            fg_color=self.PALETTE["card"],
+            corner_radius=20,
+            border_width=1,
+            border_color=self.PALETTE["border"],
+        )
+        card.grid(row=4, column=0, sticky="ew", padx=6, pady=(0, 16))
         card.grid_columnconfigure(0, weight=1)
 
         self.generate_button = ctk.CTkButton(
@@ -249,7 +315,7 @@ class App(ctk.CTk):
             border_width=1,
             border_color=self.PALETTE["border"],
         )
-        card.grid(row=row, column=0, sticky="ew", padx=6, pady=(0, 16))
+        card.grid(row=row, column=0, sticky="ew", padx=3, pady=(0, 8))
         card.grid_columnconfigure(0, weight=1, uniform=f"card_{row}")
         card.grid_columnconfigure(1, weight=1, uniform=f"card_{row}")
 
@@ -306,6 +372,7 @@ class App(ctk.CTk):
             padx=14,
             pady=(0, 12),
         )
+        field.grid_columnconfigure(0, minsize=150)
         field.grid_columnconfigure(1, weight=1)
 
         label_widget = ctk.CTkLabel(
@@ -313,7 +380,6 @@ class App(ctk.CTk):
             text=label,
             text_color=self.PALETTE["muted"],
             anchor="w",
-            width=92,
         )
         label_widget.grid(row=0, column=0, sticky="w", padx=(0, 12))
 
@@ -368,6 +434,16 @@ class App(ctk.CTk):
         if manufacturer == "Example Studio" and self.manufacturer_var.get().strip() == "":
             self.manufacturer_var.set("Example Studio")
 
+    def _selected_platforms(self) -> tuple[str, ...]:
+        platforms: list[str] = []
+        if self.linux_platform_var.get():
+            platforms.append(PLATFORM_LINUX)
+        if self.windows_platform_var.get():
+            platforms.append(PLATFORM_WINDOWS)
+        if self.macos_platform_var.get():
+            platforms.append(PLATFORM_MACOS)
+        return tuple(platforms)
+
     def _build_config(self) -> ScaffoldConfig:
         app_name = self.app_name_var.get().strip()
         package_name = self.package_name_var.get().strip()
@@ -384,6 +460,7 @@ class App(ctk.CTk):
             manufacturer=self.manufacturer_var.get().strip(),
             app_data_dir_name=executable_name,
             linux_data_dir_name=package_name,
+            platforms=self._selected_platforms(),
         )
 
     def _generate(self) -> None:

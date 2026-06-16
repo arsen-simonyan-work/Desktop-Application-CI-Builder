@@ -2,6 +2,9 @@ __pycache__/
 *.pyc
 venv/
 .venv/
+.venv-build/
+.idea/
 dist/
 build/
 artifacts/
+tmp_scaffold_*/
