@@ -637,11 +637,18 @@ if sys.platform == "darwin":
         name="__APP_BUNDLE_NAME__",
         bundle_identifier="__BUNDLE_ID__",
         icon=str(macos_icon) if macos_icon.exists() else None,
+        info_plist={
+            "CFBundleName": "__APP_NAME__",
+            "CFBundleDisplayName": "__APP_NAME__",
+            "CFBundleIdentifier": "__BUNDLE_ID__",
+            "CFBundleIconFile": "app-icon.icns",
+        },
     )
 '''
     return _fill_template(
         template,
         {
+            "__APP_NAME__": config.app_name,
             "__ENTRY_SCRIPT__": config.entry_script,
             "__EXECUTABLE_NAME__": config.executable_name,
             "__APP_BUNDLE_NAME__": config.app_bundle_name,

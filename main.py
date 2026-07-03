@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox
@@ -94,6 +95,8 @@ class App(ctk.CTk):
             pass
 
     def _apply_window_identity(self) -> None:
+        self._apply_macos_dock_icon()
+
         if os.name == "nt" and APP_WINDOWS_ICON_PATH.is_file():
             try:
                 self.iconbitmap(default=str(APP_WINDOWS_ICON_PATH))
@@ -108,6 +111,20 @@ class App(ctk.CTk):
                 self._app_icon_image = icon_image
             except tk.TclError:
                 pass
+
+    def _apply_macos_dock_icon(self) -> None:
+        if sys.platform != "darwin" or not APP_ICON_PATH.is_file():
+            return
+
+        try:
+            from AppKit import NSApplication, NSImage
+
+            icon_image = NSImage.alloc().initByReferencingFile_(str(APP_ICON_PATH))
+            if icon_image and icon_image.isValid():
+                NSApplication.sharedApplication().setApplicationIconImage_(icon_image)
+                self._macos_app_icon_image = icon_image
+        except Exception:
+            pass
 
     def _build_ui(self) -> None:
         self.grid_columnconfigure(0, weight=1, uniform="main")

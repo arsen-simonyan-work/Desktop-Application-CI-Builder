@@ -65,4 +65,10 @@ if sys.platform == "darwin":
         name="DesktopAppCiBuilder.app",
         bundle_identifier="com.desktopappcibuilder.app",
         icon=str(macos_icon) if macos_icon.exists() else None,
+        info_plist={
+            "CFBundleName": "Desktop App CI Builder",
+            "CFBundleDisplayName": "Desktop App CI Builder",
+            "CFBundleIdentifier": "com.desktopappcibuilder.app",
+            "CFBundleIconFile": "app-icon.icns",
+        },
     )
