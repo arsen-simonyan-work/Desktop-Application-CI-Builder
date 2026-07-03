@@ -11,20 +11,20 @@ import customtkinter as ctk
 
 
 DEFAULT_THEME = {
-    "bg": "#15212A",
-    "panel": "#1C2B36",
-    "panel_alt": "#223544",
-    "surface": "#263846",
-    "border": "#4B6274",
-    "text": "#F5F7FA",
-    "accent": "#304659",
-    "accent_hover": "#3A556B",
-    "accent_text": "#F5F7FA",
-    "disabled_bg": "#223544",
-    "disabled_text": "#B9C6D2",
-    "item_hover": "#2D4356",
-    "secondary_button": "#223544",
-    "secondary_button_hover": "#304659",
+    "bg": "#10141a",
+    "panel": "#161d26",
+    "panel_alt": "#1d2631",
+    "surface": "#131923",
+    "border": "#32404f",
+    "text": "#eef4fb",
+    "accent": "#d67a3c",
+    "accent_hover": "#b9662f",
+    "accent_text": "#fff7f0",
+    "disabled_bg": "#1d2631",
+    "disabled_text": "#96a5b5",
+    "item_hover": "#1d2631",
+    "secondary_button": "#1d2631",
+    "secondary_button_hover": "#32404f",
 }
 
 
