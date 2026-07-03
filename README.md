@@ -4,6 +4,7 @@ Standalone desktop utility that generates packaging and GitHub Actions CI/CD sca
 
 What it does:
 - choose a target project folder
+- reopen an already generated project folder and edit/update the scaffold
 - choose a master app icon
 - set app name, package name, bundle id, executable name, version, entry script
 - choose target platforms: Linux (`deb`), Windows (`msi`), macOS (`dmg`)
@@ -21,6 +22,7 @@ python3 main.py
 ```
 
 Generated scaffold:
+- `.desktop_app_ci_builder.json`
 - `version.py`, `app_paths.py`, `VERSION`
 - `.github/workflows/release-packages.yml`
 - platform-specific build scripts for the selected targets

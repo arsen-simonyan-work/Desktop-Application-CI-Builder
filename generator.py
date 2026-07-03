@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from dataclasses import dataclass
@@ -52,6 +53,7 @@ ICNS_ICON_SIZES = [
     (512, 512, 2),
 ]
 ICNS_CANVAS_SIZE = 1024
+SCAFFOLD_STATE_FILENAME = ".desktop_app_ci_builder.json"
 
 
 class ScaffoldError(ValueError):
@@ -194,6 +196,196 @@ def make_bundle_id(package_name: str, manufacturer_name: str = "Example Company"
     company = slugify_bundle_company(manufacturer_name)
     suffix = package_name.replace("-", "")
     return f"com.{company}.{suffix}"
+
+
+def _read_text_if_exists(path: Path) -> str | None:
+    if not path.exists() or not path.is_file():
+        return None
+    return path.read_text(encoding="utf-8")
+
+
+def _extract_string_constant(source: str | None, name: str) -> str | None:
+    if not source:
+        return None
+    match = re.search(rf'^{re.escape(name)}\s*=\s*["\'](.+?)["\']', source, re.MULTILINE)
+    if not match:
+        return None
+    return match.group(1)
+
+
+def _extract_spec_entry_script(source: str | None) -> str | None:
+    if not source:
+        return None
+    match = re.search(r'Analysis\(\s*\[\s*"([^"]+)"\s*\]', source)
+    if not match:
+        return None
+    return match.group(1)
+
+
+def render_scaffold_state(config: ScaffoldConfig) -> str:
+    payload = {
+        "schema_version": 1,
+        "generated_by": "desktop_app_ci_builder",
+        "app_name": config.app_name,
+        "version": config.version,
+        "package_name": config.package_name,
+        "executable_name": config.executable_name,
+        "bundle_id": config.bundle_id,
+        "entry_script": config.entry_script,
+        "manufacturer": config.manufacturer,
+        "app_data_dir_name": config.app_data_dir_name,
+        "linux_data_dir_name": config.linux_data_dir_name,
+        "platforms": list(config.platforms),
+        "icon_path": "assets/icons/app-icon-source.png",
+    }
+    return json.dumps(payload, indent=2) + "\n"
+
+
+def scaffold_state_path(target_dir: Path) -> Path:
+    return target_dir / SCAFFOLD_STATE_FILENAME
+
+
+def managed_scaffold_paths(config: ScaffoldConfig) -> set[Path]:
+    target_dir = config.target_dir.resolve()
+    paths = {
+        target_dir / "VERSION",
+        target_dir / "version.py",
+        target_dir / "app_paths.py",
+        target_dir / config.spec_filename,
+        target_dir / ".github" / "workflows" / "release-packages.yml",
+        target_dir / "scripts" / "validate_version.py",
+        target_dir / "scripts" / "generate_icons.py",
+        target_dir / "PACKAGING.md",
+        scaffold_state_path(target_dir),
+        target_dir / "assets" / "icons" / "app-icon-source.png",
+        target_dir / "assets" / "icons" / "app-icon.png",
+    }
+
+    if config.supports_linux:
+        paths.add(target_dir / "build_linux.sh")
+        paths.add(target_dir / "scripts" / "build_deb.py")
+        for size in LINUX_ICON_SIZES:
+            paths.add(
+                target_dir
+                / "assets"
+                / "icons"
+                / "hicolor"
+                / f"{size}x{size}"
+                / "apps"
+                / f"{config.package_name}.png"
+            )
+
+    if config.supports_windows:
+        paths.add(target_dir / "build_windows.bat")
+        paths.add(target_dir / "scripts" / "build_msi.py")
+        paths.add(target_dir / "assets" / "icons" / "app-icon.ico")
+
+    if config.supports_macos:
+        paths.add(target_dir / "build_macos.sh")
+        paths.add(target_dir / "scripts" / "build_dmg.sh")
+        paths.add(target_dir / "assets" / "icons" / "app-icon.icns")
+
+    return paths
+
+
+def detect_existing_scaffold(target_dir: Path) -> ScaffoldConfig | None:
+    target_dir = target_dir.resolve()
+    manifest_path = scaffold_state_path(target_dir)
+    manifest_text = _read_text_if_exists(manifest_path)
+    if manifest_text:
+        try:
+            data = json.loads(manifest_text)
+            return ScaffoldConfig(
+                target_dir=target_dir,
+                icon_path=target_dir / data.get("icon_path", "assets/icons/app-icon-source.png"),
+                app_name=data.get("app_name", "").strip(),
+                version=data.get("version", "").strip(),
+                package_name=data.get("package_name", "").strip(),
+                executable_name=data.get("executable_name", "").strip(),
+                bundle_id=data.get("bundle_id", "").strip(),
+                entry_script=data.get("entry_script", "").strip(),
+                manufacturer=data.get("manufacturer", "").strip(),
+                app_data_dir_name=data.get("app_data_dir_name", "").strip(),
+                linux_data_dir_name=data.get("linux_data_dir_name", "").strip(),
+                platforms=normalize_platforms(data.get("platforms", [])),
+            )
+        except Exception:
+            pass
+
+    packaging_text = _read_text_if_exists(target_dir / "PACKAGING.md")
+    if not packaging_text or "This scaffold was generated for `" not in packaging_text:
+        return None
+
+    version_py = _read_text_if_exists(target_dir / "version.py")
+    app_paths_py = _read_text_if_exists(target_dir / "app_paths.py")
+    spec_files = sorted(target_dir.glob("*.spec"))
+    spec_text = _read_text_if_exists(spec_files[0]) if spec_files else None
+    build_msi_py = _read_text_if_exists(target_dir / "scripts" / "build_msi.py")
+    version_text = _read_text_if_exists(target_dir / "VERSION")
+
+    package_name = _extract_string_constant(version_py, "PACKAGE_NAME") or ""
+    app_name = _extract_string_constant(version_py, "APP_NAME") or ""
+    bundle_id = _extract_string_constant(version_py, "BUNDLE_ID") or ""
+    executable_name = spec_files[0].stem if spec_files else ""
+    entry_script = _extract_spec_entry_script(spec_text) or "main.py"
+    manufacturer = _extract_string_constant(build_msi_py, "MANUFACTURER") or "Example Studio"
+    app_data_dir_name = _extract_string_constant(app_paths_py, "APP_DATA_DIR_NAME") or executable_name
+    linux_data_dir_name = _extract_string_constant(app_paths_py, "LINUX_DATA_DIR_NAME") or package_name
+
+    platforms: list[str] = []
+    if (target_dir / "build_linux.sh").exists() or (target_dir / "scripts" / "build_deb.py").exists():
+        platforms.append(PLATFORM_LINUX)
+    if (target_dir / "build_windows.bat").exists() or (target_dir / "scripts" / "build_msi.py").exists():
+        platforms.append(PLATFORM_WINDOWS)
+    if (target_dir / "build_macos.sh").exists() or (target_dir / "scripts" / "build_dmg.sh").exists():
+        platforms.append(PLATFORM_MACOS)
+
+    try:
+        normalized_platforms = normalize_platforms(platforms)
+    except ScaffoldError:
+        normalized_platforms = ()
+
+    return ScaffoldConfig(
+        target_dir=target_dir,
+        icon_path=target_dir / "assets" / "icons" / "app-icon-source.png",
+        app_name=app_name,
+        version=(version_text or "").strip(),
+        package_name=package_name,
+        executable_name=executable_name,
+        bundle_id=bundle_id,
+        entry_script=entry_script,
+        manufacturer=manufacturer,
+        app_data_dir_name=app_data_dir_name,
+        linux_data_dir_name=linux_data_dir_name,
+        platforms=normalized_platforms,
+    )
+
+
+def cleanup_stale_scaffold(previous_config: ScaffoldConfig, current_config: ScaffoldConfig) -> list[Path]:
+    previous_paths = managed_scaffold_paths(previous_config)
+    current_paths = managed_scaffold_paths(current_config)
+    removed: list[Path] = []
+
+    for path in sorted(previous_paths.difference(current_paths), key=lambda item: len(item.parts), reverse=True):
+        if not path.exists() or not path.is_file():
+            continue
+        path.unlink()
+        removed.append(path)
+
+    parent_dirs = sorted(
+        {path.parent for path in previous_paths.difference(current_paths)},
+        key=lambda item: len(item.parts),
+        reverse=True,
+    )
+    for directory in parent_dirs:
+        if directory == current_config.target_dir.resolve():
+            continue
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+
+    return removed
 
 
 def _fill_template(template: str, mapping: dict[str, str]) -> str:
@@ -1202,6 +1394,7 @@ def render_packaging_readme(config: ScaffoldConfig) -> str:
     generated_files = [
         f"- `{config.spec_filename}`",
         "- `.github/workflows/release-packages.yml`",
+        f"- `{SCAFFOLD_STATE_FILENAME}`",
         "- `scripts/generate_icons.py`",
         "- `scripts/validate_version.py`",
         "- `version.py`",
@@ -1275,12 +1468,18 @@ Notes:
     )
 
 
-def generate_scaffold(config: ScaffoldConfig) -> list[Path]:
+def generate_scaffold(
+    config: ScaffoldConfig,
+    previous_config: ScaffoldConfig | None = None,
+) -> list[Path]:
     config.validate()
     target_dir = config.target_dir.resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
 
     created: list[Path] = []
+    if previous_config and previous_config.target_dir.resolve() == target_dir:
+        created.extend(cleanup_stale_scaffold(previous_config, config))
+
     created.extend(
         generate_icon_assets(
             icon_path=config.icon_path.resolve(),
@@ -1299,6 +1498,7 @@ def generate_scaffold(config: ScaffoldConfig) -> list[Path]:
         target_dir / "scripts" / "validate_version.py": (render_validate_version_py(), False),
         target_dir / "scripts" / "generate_icons.py": (render_target_generate_icons_py(config), False),
         target_dir / "PACKAGING.md": (render_packaging_readme(config), False),
+        scaffold_state_path(target_dir): (render_scaffold_state(config), False),
     }
 
     if config.supports_linux:

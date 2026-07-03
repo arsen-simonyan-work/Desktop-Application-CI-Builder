@@ -4,6 +4,7 @@ from pathlib import Path
 APP_NAME = "Desktop App CI Builder"
 PACKAGE_NAME = "desktop-app-ci-builder"
 BUNDLE_ID = "com.desktopappcibuilder.app"
+APP_WM_CLASS = "DesktopAppCiBuilder"
 
 
 def version_file_candidates() -> list[Path]:
