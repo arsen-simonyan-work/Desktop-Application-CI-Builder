@@ -13,7 +13,7 @@ ARCHITECTURE = "amd64"
 INSTALL_DIR = Path("/opt") / PACKAGE_NAME
 EXECUTABLE_NAME = "DesktopAppCiBuilder"
 ICON_NAME = PACKAGE_NAME
-STARTUP_WM_CLASS = "DesktopAppCiBuilder"
+STARTUP_WM_CLASS = "Desktopappcibuilder"
 MAINTAINER = "Assistant Lab"
 DESCRIPTION = "Packaged desktop application."
 

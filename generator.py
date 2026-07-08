@@ -155,7 +155,9 @@ class ScaffoldConfig:
 
     @property
     def wm_class(self) -> str:
-        return self.executable_name
+        if not self.executable_name:
+            return ""
+        return self.executable_name[:1].upper() + self.executable_name[1:].lower()
 
     @property
     def upgrade_code(self) -> str:
@@ -465,6 +467,7 @@ from pathlib import Path
 APP_NAME = "__APP_NAME__"
 PACKAGE_NAME = "__PACKAGE_NAME__"
 BUNDLE_ID = "__BUNDLE_ID__"
+APP_WM_CLASS = "__WM_CLASS__"
 
 
 def version_file_candidates() -> list[Path]:
@@ -502,6 +505,7 @@ __version__ = read_version()
             "__APP_NAME__": config.app_name,
             "__PACKAGE_NAME__": config.package_name,
             "__BUNDLE_ID__": config.bundle_id,
+            "__WM_CLASS__": config.wm_class,
         },
     )
 
@@ -801,9 +805,11 @@ def render_main_py(config: ScaffoldConfig) -> str:
 
 from version import APP_NAME, __version__
 
+APP_WM_CLASS = "__WM_CLASS__"
+
 
 def main() -> None:
-    root = tk.Tk()
+    root = tk.Tk(className=APP_WM_CLASS)
     root.title(f"{APP_NAME} {__version__}")
     root.geometry("960x640")
     root.configure(bg="#141a22")
@@ -845,7 +851,12 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 '''
-    return template
+    return _fill_template(
+        template,
+        {
+            "__WM_CLASS__": config.wm_class,
+        },
+    )
 
 
 def render_build_linux_sh(config: ScaffoldConfig) -> str:
